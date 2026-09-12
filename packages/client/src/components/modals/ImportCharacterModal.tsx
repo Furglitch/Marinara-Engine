@@ -3,7 +3,7 @@
 // ──────────────────────────────────────────────
 import { useState, useRef } from "react";
 import { Modal } from "../ui/Modal";
-import { Download, FileJson, Image, CheckCircle, XCircle, Loader2, BookOpen } from "lucide-react";
+import { Download, FileJson, Image, CheckCircle, XCircle, Loader2, BookOpen, Link2 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { characterKeys } from "../../hooks/use-characters";
 import { lorebookKeys } from "../../hooks/use-lorebooks";
@@ -52,6 +52,9 @@ export function ImportCharacterModal({ open, onClose }: Props) {
   } | null>(null);
   const [tagImportMode, setTagImportMode] = useState<TagImportMode>("all");
   const [regexScriptScope, setRegexScriptScope] = useState<RegexScriptScope>("character");
+  const [botbooruInput, setBotbooruInput] = useState("");
+  const [botbooruFormat, setBotbooruFormat] = useState<"json" | "png">("json");
+  const [botbooruLoading, setBotbooruLoading] = useState(false);
   const qc = useQueryClient();
 
   const isZipFile = async (file: File): Promise<boolean> => {
@@ -238,6 +241,52 @@ export function ImportCharacterModal({ open, onClose }: Props) {
     handleFiles(Array.from(e.dataTransfer.files));
   };
 
+  const handleBotbooruImport = async () => {
+    const source = botbooruInput.trim();
+    if (!source) return;
+    setBotbooruLoading(true);
+    setStatus("loading");
+    setResults([]);
+    try {
+      const params = new URLSearchParams({ format: botbooruFormat });
+      if (/^\d+$/.test(source)) params.set("id", source);
+      else params.set("url", source);
+
+      const res = await fetch(`/api/bot-browser/botbooru/download?${params.toString()}`);
+      if (!res.ok) {
+        let message = `Botbooru import failed (${res.status})`;
+        try {
+          const body = (await res.json()) as { error?: string };
+          if (body?.error) message = body.error;
+        } catch {
+          /* keep default message */
+        }
+        setResults([{ filename: source, success: false, message }]);
+        setStatus("done");
+        return;
+      }
+
+      const blob = await res.blob();
+      const filename = `botbooru-${Date.now()}.${botbooruFormat}`;
+      const file = new File([blob], filename, {
+        type: botbooruFormat === "png" ? "image/png" : "application/json",
+      });
+      setBotbooruInput("");
+      await handleFiles([file]);
+    } catch (err) {
+      setResults([
+        {
+          filename: source,
+          success: false,
+          message: err instanceof Error ? err.message : "Botbooru import failed",
+        },
+      ]);
+      setStatus("done");
+    } finally {
+      setBotbooruLoading(false);
+    }
+  };
+
   const reset = () => {
     setStatus("idle");
     setResults([]);
@@ -375,6 +424,46 @@ export function ImportCharacterModal({ open, onClose }: Props) {
                 </span>
               </label>
             ))}
+          </div>
+        </div>
+
+        {/* Botbooru URL import */}
+        <div className="rounded-xl border border-[var(--border)] bg-[var(--secondary)]/40 p-3">
+          <div className="mb-2 flex items-center gap-2">
+            <Link2 size="0.875rem" className="text-[var(--primary)]" />
+            <p className="text-xs font-semibold text-[var(--foreground)]">Import from Botbooru</p>
+          </div>
+          <p className="mb-2 text-[0.6875rem] text-[var(--muted-foreground)]">
+            Paste a botbooru.com card URL or a numeric card id.
+          </p>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <input
+              type="text"
+              value={botbooruInput}
+              onChange={(e) => setBotbooruInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void handleBotbooruImport();
+              }}
+              placeholder="73558 or https://botbooru.com/character/73558"
+              className="min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--background)]/60 px-3 py-2 text-xs text-[var(--foreground)] outline-none focus:border-[var(--primary)]"
+            />
+            <select
+              value={botbooruFormat}
+              onChange={(e) => setBotbooruFormat(e.target.value === "png" ? "png" : "json")}
+              className="rounded-lg border border-[var(--border)] bg-[var(--background)]/60 px-2 py-2 text-xs text-[var(--foreground)] outline-none focus:border-[var(--primary)]"
+            >
+              <option value="json">JSON</option>
+              <option value="png">PNG</option>
+            </select>
+            <button
+              type="button"
+              onClick={() => void handleBotbooruImport()}
+              disabled={botbooruLoading || !botbooruInput.trim()}
+              className="flex items-center justify-center gap-1.5 rounded-lg bg-[var(--primary)] px-3 py-2 text-xs font-semibold text-[var(--primary-foreground)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {botbooruLoading ? <Loader2 size="0.8125rem" className="animate-spin" /> : <Download size="0.8125rem" />}
+              Import
+            </button>
           </div>
         </div>
 
